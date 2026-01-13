@@ -66,7 +66,7 @@ def update_fan_speed(percentage):
 # 它不再被 sleep(1) 阻塞，响应速度是微秒级的
 update_fan_speed(target_duty_percent)  # 执行初始转速
 
-print("Pico Fan Controller Ready...")
+# print("Pico Fan Controller Ready...")
 
 while True:
     if spoll.poll(0):  # 瞬间检查是否有数据
@@ -77,7 +77,7 @@ while True:
                 update_fan_speed(cmd["set_duty"])
         except Exception as e:
             # 可以通过串口发回错误，方便 Go 程序调试
-            # print(json.dumps({"error": str(e)}))
+            print(json.dumps({"error": str(e)}))
             pass
 
     # 这里可以放其他超低延迟的任务，或者直接 pass
