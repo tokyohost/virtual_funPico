@@ -7,70 +7,79 @@ import uselect
 # --- 配置区 ---
 PWM_PIN = 15
 TACHO_PIN = 14
-FAN_FREQ = 25000  # 标准 PWM 风扇频率 25kHz
+FAN_FREQ = 25000
 
-# --- 初始化 ---
-# PWM 设定
+# --- 全局变量 ---
+pulse_count = 0
+current_rpm = 0
+target_duty_percent = 60  # 初始转速
+
+# --- 初始化硬件 ---
 fan_control = machine.PWM(machine.Pin(PWM_PIN))
 fan_control.freq(FAN_FREQ)
 
-# Tacho 设定（使用内部上拉电阻，省去额外硬件）
 tacho_input = machine.Pin(TACHO_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-pulse_count = 0
 
-
+# --- 中断：脉冲计数 ---
 def tacho_callback(pin):
     global pulse_count
     pulse_count += 1
 
 
-# 绑定中断：上升沿触发
 tacho_input.irq(handler=tacho_callback, trigger=machine.Pin.IRQ_RISING)
 
-# --- 串口非阻塞监听初始化 ---
+
+# --- 定时器回调：每秒计算一次 RPM 并上报 ---
+def calculate_rpm_callback(timer):
+    global pulse_count, current_rpm
+    # 计算 RPM (假设每转 2 个脉冲)
+    current_rpm = (pulse_count * 60) // 2
+    pulse_count = 0  # 重置计数器
+
+    # 构造并打印数据给 Go 程序
+    data = {
+        "rpm": current_rpm,
+        "duty": target_duty_percent
+    }
+    print(json.dumps(data))
+
+
+# 注册硬件定时器 (ID=-1 是虚拟定时器，或者用 0)
+# period=1000 表示 1000ms 执行一次
+timer = machine.Timer(-1)
+timer.init(period=1000, mode=machine.Timer.PERIODIC, callback=calculate_rpm_callback)
+
+# --- 串口处理逻辑 ---
 spoll = uselect.poll()
 spoll.register(sys.stdin, uselect.POLLIN)
 
-def check_usb_input():
-    """检查是否有来自电脑的指令"""
-    if spoll.poll(0): # 非阻塞检查
+
+def update_fan_speed(percentage):
+    global target_duty_percent
+    target_duty_percent = max(0, min(100, percentage))  # 边界检查
+    duty_u16 = int(target_duty_percent * 65535 / 100)
+    fan_control.duty_u16(duty_u16)
+
+
+# --- 主循环：现在只负责处理串口 ---
+# 它不再被 sleep(1) 阻塞，响应速度是微秒级的
+update_fan_speed(target_duty_percent)  # 执行初始转速
+
+print("Pico Fan Controller Ready...")
+
+while True:
+    if spoll.poll(0):  # 瞬间检查是否有数据
         line = sys.stdin.readline().strip()
         try:
-            # 假设电脑发送的是 {"set_duty": 80}
             cmd = json.loads(line)
             if "set_duty" in cmd:
-                new_duty = int(cmd["set_duty"] * 65535 / 100)
-                fan_control.duty_u16(new_duty)
-        except:
-            pass # 忽略格式错误的指令
+                update_fan_speed(cmd["set_duty"])
+        except Exception as e:
+            # 可以通过串口发回错误，方便 Go 程序调试
+            # print(json.dumps({"error": str(e)}))
+            pass
 
-
-
-# --- 主逻辑 ---
-def set_fan_speed(percentage):
-    """设置风扇速度 0-100"""
-    # 将 0-100 映射到 0-65535 (16位占空比)
-    duty = int(percentage * 65535 / 100)
-    fan_control.duty_u16(duty)
-
-
-try:
-    while True:
-        # 1. 设定转速（比如 60%）
-        set_fan_speed(60)
-
-        # 2. 采样 1 秒来计算 RPM
-        pulse_count = 0
-        utime.sleep(1)
-
-        # 计算 RPM (假设每转 2 个脉冲)
-        rpm = (pulse_count * 60) // 2
-        data = {"rpm": rpm, "duty": 60}
-        print(json.dumps(data))
-        # print(f"Target: 60% | Current Speed: {rpm} RPM")
-
-except KeyboardInterrupt:
-    # 优雅退出：停止风扇
-    fan_control.duty_u16(0)
-    print("Program stopped")
+    # 这里可以放其他超低延迟的任务，或者直接 pass
+    # 建议加一个极小的 sleep 降低功耗
+    utime.sleep_ms(10)
