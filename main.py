@@ -17,6 +17,12 @@ fans = {
         "tach": machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_UP),
         "pulses": 0,
         "missing_cycles": 0  # 新增：连续未检测到转速的周期数
+    },
+    "fan3": {
+        "pwm": machine.PWM(machine.Pin(11)),
+        "tach": machine.Pin(10, machine.Pin.IN, machine.Pin.PULL_UP),
+        "pulses": 0,
+        "missing_cycles": 0  # 新增：连续未检测到转速的周期数
     }
 }
 
