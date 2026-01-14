@@ -7,12 +7,16 @@ import uselect
 # --- 配置部分 ---
 fans = {
     "fan1": {
+        "PWM_PIN":15,
+        "FAN_FREQ":14,
         "pwm": machine.PWM(machine.Pin(15)),
         "tach": machine.Pin(14, machine.Pin.IN, machine.Pin.PULL_UP),
         "pulses": 0,
         "missing_cycles": 0  # 新增：连续未检测到转速的周期数
     },
     "fan2": {
+        "PWM_PIN":13,
+        "FAN_FREQ":12,
         "pwm": machine.PWM(machine.Pin(13)),
         "tach": machine.Pin(12, machine.Pin.IN, machine.Pin.PULL_UP),
         "pulses": 0,
@@ -24,23 +28,16 @@ fans = {
 # 初始化 PWM 频率和中断
 def create_callback(fan_name):
     def callback(pin):
-        # print("Fan", fan_name)
         fans[fan_name]["pulses"] += 1
 
     return callback
 
-# 临时手动绑定进行对比测试
-def cb_f1(p):
-    fans["fan1"]["pulses"] += 1
-def cb_f2(p):
-    fans["fan2"]["pulses"] += 1
 
 for name, config in fans.items():
     config["pwm"].freq(25000)
-    config["pwm"].duty_u16(65535)  # 初始最大
+    config["pwm"].duty_u16(100)  # 初始停止
     config["tach"].irq(trigger=machine.Pin.IRQ_FALLING, handler=create_callback(name))
-# fans["fan1"]["tach"].irq(trigger=machine.Pin.IRQ_FALLING, handler=cb_f1)
-# fans["fan2"]["tach"].irq(trigger=machine.Pin.IRQ_FALLING, handler=cb_f2)
+
 
 # --- 定时器：每秒上报一次数据 ---
 def calculate_rpm_callback(timer):
@@ -78,7 +75,7 @@ def calculate_rpm_callback(timer):
 
     # 如果列表不为空（至少有一个风扇接了），才打印上报
     if len(report_list) > 0:
-        print(json.dumps(report_list))
+        print(json.dumps({"fans": report_list}))
     else:
         pass # 保持沉默，不上报
 
